@@ -7,6 +7,8 @@
 //
 
 import UIKit
+import Firebase
+
 
 class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConnectableDelegate{
     
@@ -14,6 +16,8 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
     var deviceBox: Array<ESTDeviceLocationBeacon>! = []
     var device: ESTDeviceLocationBeacon!
     var ownBeaconlistID: Array<String>! = []
+    var ref: DatabaseReference!
+    
     
     @IBOutlet weak var statusLabel: UILabel!
     @IBOutlet weak var modeLabel: UILabel!
@@ -23,12 +27,14 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
         
         self.deviceManger = ESTDeviceManager()
         self.deviceManger.delegate = self
+        self.ref = Database.database().reference()
         
-        delay(30){
-            self.modeLabel.text = "Setting\nget \(self.deviceBox.count) devices"
-            self.deviceManger.stopDeviceDiscovery()
-            self.beaconSetting(settingDevice: self.deviceBox)
-        }
+//        delay(30){
+//            self.modeLabel.text = "Setting\nget \(self.deviceBox.count) devices"
+//            self.deviceManger.stopDeviceDiscovery()
+//            self.beaconSetting(settingDevice: self.deviceBox)
+//        }
+        
         //get beacon list
         let Request = ESTRequestV2GetDevices()
         Request.sendRequest { ( list: [ESTDeviceDetails]?, error: Error?) in
@@ -70,6 +76,7 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
     
     func deviceManagerDidFailDiscovery(_ manager: ESTDeviceManager) {
         print("Error!!")
+        self.statusLabel.text = "Scan failed!!"
     }
     
     
@@ -108,6 +115,7 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
     }
 
     func beaconSetting(settingDevice devices: Array<ESTDeviceLocationBeacon>!){
+        
         for deviceSet in devices {
             deviceSet.settings?.iBeacon.major.writeValue(300, completion: { (_ settingMajor: ESTSettingIBeaconMajor?, error: Error?) in
                 self.statusLabel.text = "Set Major to 300\n\(deviceSet.identifier)"
