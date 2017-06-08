@@ -18,7 +18,8 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
     var ownBeaconlistID: Array<String>! = []
     var ref: DatabaseReference!
     var searchTime = 30 //second
-    
+    var beaconSettingTimer: Timer?
+    var executeCont = 0;
     @IBOutlet weak var statusLabel: UILabel!
     @IBOutlet weak var modeLabel: UILabel!
     
@@ -28,32 +29,34 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
         
         self.deviceManger = ESTDeviceManager()
         self.deviceManger.delegate = self
-                self.ref = Database.database().reference()
+        self.ref = Database.database().reference()
+
+        let timer: Timer?
+        timer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: (#selector(ViewController.searchTimeShow)), userInfo: nil, repeats: true)
         
-        var timer: Timer?
-        timer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: (#selector(ViewController.addsomthing)), userInfo: nil, repeats: true)
-        
-//        delay(searchTime){
-//            timer?.invalidate()
-//            self.modeLabel.text = "Setting\nget \(self.deviceBox.count) devices"
-//            self.deviceManger.stopDeviceDiscovery()
-//            self.beaconSetting(settingDevice: self.deviceBox)
-//            
-//        }
+        delay(searchTime){
+            timer?.invalidate()
+            self.modeLabel.text = "Setting\nget \(self.deviceBox.count) devices"
+            self.deviceManger.stopDeviceDiscovery()
+            if self.deviceBox.count > 0 {
+                self.beaconSettingTimer = Timer.scheduledTimer(timeInterval: 5, target: self, selector: (#selector(ViewController.beaconSetting)), userInfo: nil, repeats: true)
+                //self.beaconSetting(settingDevice: self.deviceBox)
+            }
+        }
         
         //get beacon list
-//        let Request = ESTRequestV2GetDevices()
-//        Request.sendRequest { ( list: [ESTDeviceDetails]?, error: Error?) in
-//            if list != nil {
-//                for beaconList in list! {
-//                    self.ownBeaconlistID.append(beaconList.identifier)
-//                    print(beaconList.identifier)
-//                }
-//                self.deviceManger.startDeviceDiscovery(with: ESTDeviceFilterLocationBeacon(identifiers: self.ownBeaconlistID))
-//                //self.modeLabel.text = "Search Beacon"
-//                self.statusLabel.text = "Start to scan..."
-//            }
-//        }
+        let Request = ESTRequestV2GetDevices()
+        Request.sendRequest { ( list: [ESTDeviceDetails]?, error: Error?) in
+            if list != nil {
+                for beaconList in list! {
+                    self.ownBeaconlistID.append(beaconList.identifier)
+                    print(beaconList.identifier)
+                }
+                self.deviceManger.startDeviceDiscovery(with: ESTDeviceFilterLocationBeacon(identifiers: self.ownBeaconlistID))
+                //self.modeLabel.text = "Search Beacon"
+                self.statusLabel.text = "Start to scan..."
+            }
+        }
        
     }
 
@@ -120,15 +123,53 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
         
     }
 
-    func beaconSetting(settingDevice devices: Array<ESTDeviceLocationBeacon>!){
-
-        for deviceSet in devices {
-            deviceSet.settings?.iBeacon.major.writeValue(300, completion: { (_ settingMajor: ESTSettingIBeaconMajor?, error: Error?) in
-                self.statusLabel.text = "Set Major to 300\n\(deviceSet.identifier)"
-                print("Set Major to 300\n\(deviceSet.identifier)")
+    func beaconSetting(){
+        //get Indoor && unDirty users
+        self.ref.child("users").queryOrdered(byChild: "indoor").queryEqual(toValue: true).observeSingleEvent(of: .value, with: { (DataSnapshot) in
+            let value = DataSnapshot.value as! NSDictionary
+            var CleanUserdata = value.filter {
+                let user = $0.1 as! NSDictionary
+                return user["dirty"] as! Bool == false
+            }
+            //setting info in N devices(Beacons)
+            if CleanUserdata.count > self.deviceBox.count-1 {
+                for deviceSet in self.deviceBox {
+                    let random = Int(arc4random_uniform(UInt32(CleanUserdata.count)))
+                    print("Size: \(CleanUserdata.count), Random: \(random), ID: \(deviceSet.identifier)")
+                    let user = CleanUserdata[random].value as! NSDictionary
+                    let age = user["age"] as! UInt16
+                    print("age: \(age)")
+                    self.ref.child("users").child(CleanUserdata[random].key as! String).updateChildValues(["dirty": true])
+                    CleanUserdata.remove(at: random)
+                    
+                    //wirte beacon
+                    deviceSet.settings?.iBeacon.major.writeValue(age, completion: { (_ settingMajor: ESTSettingIBeaconMajor?, error: Error?) in
+                        print("Set to Major on:\n\(deviceSet.identifier)")
+                        self.statusLabel.text = "Set \(age) to Major on:\n\(deviceSet.identifier)"
+                        
+                    })
+                    
+                }
+            }
+            guard CleanUserdata.count < 3 else { return }
+            //set all dirty to false
+            print("opps!")
+            value.allKeys.forEach({ key in
+                self.ref.child("users").child(key as! String).updateChildValues(["dirty": false])
             })
-        }
-        //self.statusLabel.text = "All setting done."
+        })
+        
+        executeCont = executeCont + 1
+        print(executeCont)
+//        for deviceSet in self.deviceBox {
+//            deviceSet.settings?.iBeacon.major.writeValue(UInt16(executeCont), completion: { (_ settingMajor: ESTSettingIBeaconMajor?, error: Error?) in
+//                self.statusLabel.text = "Set Major to 300\n\(deviceSet.identifier)"
+//                print("Set Major to 300\n\(deviceSet.identifier)")
+//                
+//            })
+//        }
+        
+
     }
     
     func delay(_ delay:Int, closure:@escaping ()->()) {
@@ -136,12 +177,13 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
         DispatchQueue.main.asyncAfter(deadline: when, execute: closure)
     }
     
-    func update(){
+    func searchTimeShow(){
         self.searchTime = self.searchTime - 1
         self.modeLabel.text = "SeachMode: \(self.searchTime)"
     }
     
     @IBAction func addsomthing(){
+        
         self.ref.child("users").queryOrdered(byChild: "indoor").queryEqual(toValue: true).observeSingleEvent(of: .value, with: { (DataSnapshot) in
             let value = DataSnapshot.value as! NSDictionary
 
@@ -157,12 +199,10 @@ class ViewController: UIViewController, ESTDeviceManagerDelegate, ESTDeviceConne
                     let random = Int(arc4random_uniform(UInt32(CleanUserdata.count)))
                     print("Size: \(CleanUserdata.count), Random: \(random)")
                     let user = CleanUserdata[random].value as! NSDictionary
-                    let name = user["name"] as! String
-                    getname += name + ", "
-                    print(name)
+                    let name = user["age"] as! UInt16
+                    getname += "\(name)" + ", "
                     self.ref.child("users").child(CleanUserdata[random].key as! String).updateChildValues(["dirty": true])
                     CleanUserdata.remove(at: random)
-                    print(CleanUserdata.count)
                 }
                 self.statusLabel.text = getname
             }
